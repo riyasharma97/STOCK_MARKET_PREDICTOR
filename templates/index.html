@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stock Predictor</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px; 
+            margin: 0 auto; 
+            padding: 20px;
+            background-color: #f5f7fa;
+        }
+        h1 { 
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        form { 
+            display: flex; 
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        input { 
+            flex: 1; 
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        input:focus {
+            border-color: #3498db;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        }
+        button { 
+            padding: 12px 25px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        .price-container {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+        }
+        .price-box {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            width: 48%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .price-label {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+        .price-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .prediction-difference {
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .positive {
+            color: #27ae60;
+        }
+        .negative {
+            color: #e74c3c;
+        }
+        #plot { 
+            width: 100%; 
+            margin-top: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        #loading { 
+            display: none; 
+            text-align: center;
+            padding: 20px;
+            color: #3498db;
+        }
+        .error { 
+            color: #e74c3c;
+            background-color: #fadbd8;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+        .last-updated {
+            text-align: right;
+            font-size: 12px;
+            color: #95a5a6;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Stock Price Predictor</h1>
+        <form id="prediction-form">
+            <input type="text" name="symbol" placeholder="Enter stock symbol (e.g. SWIGGY.NS, AAPL)" value="SWIGGY.NS" required>
+            <button type="submit">Get Prediction</button>
+        </form>
+
+        <div id="loading">
+            <p>Fetching stock data and generating predictions...</p>
+            <div class="spinner">⏳</div>
+        </div>
+
+        <div id="error-message" class="error" style="display: none;"></div>
+
+        <div id="results" style="display: none;">
+            <h2 id="symbol-header" style="margin-bottom: 15px;"></h2>
+            
+            <div class="price-container">
+                <div class="price-box">
+                    <div class="price-label">Today's Market Price</div>
+                    <div class="price-value" id="actual-price">-</div>
+                    <div class="last-updated" id="last-updated"></div>
+                </div>
+                
+                <div class="price-box">
+                    <div class="price-label">Tomorrow's Prediction</div>
+                    <div class="price-value" id="lstm-pred">-</div>
+                    <div class="prediction-difference" id="prediction-difference"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-top: 0;">Price Trend</h3>
+                <img id="plot">
+                <div class="chart-note">Blue line shows actual prices, red dot shows prediction for next trading day</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('prediction-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Show loading, hide results and error
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('error-message').style.display = 'none';
+            
+            const formData = new FormData(e.target);
+            const symbol = formData.get('symbol').toUpperCase();
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'error') {
+                    throw new Error(data.message);
+                }
+                
+                // Update the UI with new data
+                document.getElementById('symbol-header').textContent = `${symbol} Stock Analysis`;
+                document.getElementById('actual-price').textContent = `₹${data.actual_price.toLocaleString('en-IN')}`;
+                document.getElementById('lstm-pred').textContent = `₹${data.lstm.toLocaleString('en-IN')}`;
+                
+                // Calculate and display difference
+                const difference = data.lstm - data.actual_price;
+                const differenceElement = document.getElementById('prediction-difference');
+                if (difference > 0) {
+                    differenceElement.innerHTML = `+₹${difference.toFixed(2)} <span class="positive">(▲ ${(difference/data.actual_price*100).toFixed(2)}%)</span>`;
+                } else if (difference < 0) {
+                    differenceElement.innerHTML = `-₹${Math.abs(difference).toFixed(2)} <span class="negative">(▼ ${(Math.abs(difference)/data.actual_price*100).toFixed(2)}%)</span>`;
+                } else {
+                    differenceElement.textContent = 'No change predicted';
+                }
+                
+                // Add last updated time
+                const now = new Date();
+                document.getElementById('last-updated').textContent = `Last updated: ${now.toLocaleString()}`;
+                
+                // Update plot
+                document.getElementById('plot').src = 'data:image/png;base64,' + data.plot_url;
+                
+                // Show results
+                document.getElementById('results').style.display = 'block';
+                
+            } catch (error) {
+                document.getElementById('error-message').textContent = error.message;
+                document.getElementById('error-message').style.display = 'block';
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
